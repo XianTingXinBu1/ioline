@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { FolderTree, Settings2 } from '@lucide/vue'
+import WorkspaceEmptyState from './WorkspaceEmptyState.vue'
 import WorkspaceFileList from './WorkspaceFileList.vue'
-import type { SidebarEntry } from './types'
+import type { SidebarEntry, WorkspaceCandidate } from './types'
 
 withDefaults(
   defineProps<{
@@ -9,10 +10,20 @@ withDefaults(
     activePanel: 'files' | 'settings'
     entries: SidebarEntry[]
     currentFile: string
+    workspaceReady?: boolean
+    workspaceName?: string
+    candidates?: WorkspaceCandidate[]
+    candidateLoading?: boolean
+    selectingWorkspacePath?: string | null
   }>(),
   {
     open: false,
     activePanel: 'files',
+    workspaceReady: false,
+    workspaceName: '',
+    candidates: () => [],
+    candidateLoading: false,
+    selectingWorkspacePath: null,
   },
 )
 
@@ -20,6 +31,8 @@ const emit = defineEmits<{
   close: []
   switchPanel: [panel: 'files' | 'settings']
   selectFile: [entry: SidebarEntry]
+  selectWorkspace: [candidate: WorkspaceCandidate]
+  refreshCandidates: []
 }>()
 </script>
 
@@ -58,16 +71,28 @@ const emit = defineEmits<{
 
       <div class="sidebar-panel">
         <div class="file-tree__header-row">
-          <div class="file-tree__header">{{ activePanel === 'files' ? '文件' : '设置' }}</div>
+          <div class="file-tree__header">
+            {{ activePanel === 'files' ? (workspaceReady ? workspaceName || '文件' : '选择工作区') : '设置' }}
+          </div>
           <button class="file-tree__close" title="关闭侧栏" @click="emit('close')">✕</button>
         </div>
 
-        <WorkspaceFileList
-          v-if="activePanel === 'files'"
-          :entries="entries"
-          :current-file="currentFile"
-          @select="emit('selectFile', $event)"
-        />
+        <template v-if="activePanel === 'files'">
+          <WorkspaceFileList
+            v-if="workspaceReady"
+            :entries="entries"
+            :current-file="currentFile"
+            @select="emit('selectFile', $event)"
+          />
+          <WorkspaceEmptyState
+            v-else
+            :candidates="candidates"
+            :loading="candidateLoading"
+            :selecting-path="selectingWorkspacePath"
+            @select-workspace="emit('selectWorkspace', $event)"
+            @refresh-candidates="emit('refreshCandidates')"
+          />
+        </template>
 
         <div v-else class="settings-panel">
           <div class="settings-panel__card">

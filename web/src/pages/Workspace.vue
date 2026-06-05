@@ -3,41 +3,34 @@
  * Workspace 主工作区页面
  * 当前仅面向移动端：编辑器主视图 + 侧栏抽屉
  */
-import { computed, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { CodeEditor } from '@/components/Editor'
-import { WorkspaceSidebar, type SidebarEntry } from '@/components/Workspace'
+import { WorkspaceSidebar } from '@/components/Workspace'
+import { useWorkspaceExplorer } from '@/composables/useWorkspaceExplorer'
 
-const code = ref(`import { createApp } from 'vue'
-import App from './App.vue'
+const {
+  candidatesLoading,
+  code,
+  currentError,
+  currentFile,
+  currentFileName,
+  fileTreeLoading,
+  initializeWorkspace,
+  isEditorReadonly,
+  loadWorkspaceCandidates,
+  loading,
+  openEntry,
+  selectWorkspace,
+  selectingWorkspacePath,
+  sidebarEntries,
+  statusText,
+  workspaceCandidates,
+  workspaceName,
+  workspaceReady,
+} = useWorkspaceExplorer()
 
-// ioline — 移动端代码编辑器
-const app = createApp(App)
-app.mount('#app')
-`)
-
-const sidebarEntries: SidebarEntry[] = [
-  { name: 'src', path: 'src', kind: 'directory' },
-  { name: 'main.ts', path: 'src/main.ts', kind: 'file' },
-  { name: 'App.vue', path: 'src/App.vue', kind: 'file' },
-  { name: 'styles', path: 'src/styles', kind: 'directory' },
-  { name: 'global.css', path: 'src/styles/global.css', kind: 'file' },
-  { name: 'README.md', path: 'README.md', kind: 'file' },
-]
-
-const currentFile = ref('src/main.ts')
 const isSidebarOpen = ref(false)
 const activeSidebarPanel = ref<'files' | 'settings'>('files')
-const currentFileName = computed(() => {
-  const activeEntry = sidebarEntries.find((entry) => entry.path === currentFile.value)
-  return activeEntry?.name ?? currentFile.value
-})
-
-function openFile(entry: SidebarEntry) {
-  if (entry.kind !== 'file') return
-
-  currentFile.value = entry.path
-  isSidebarOpen.value = false
-}
 
 function toggleSidebar() {
   isSidebarOpen.value = !isSidebarOpen.value
@@ -53,11 +46,28 @@ function closeSidebar() {
 function switchSidebarPanel(panel: 'files' | 'settings') {
   activeSidebarPanel.value = panel
 }
+
+async function handleEntrySelect(entry: (typeof sidebarEntries.value)[number]) {
+  const opened = await openEntry(entry)
+  if (opened) {
+    isSidebarOpen.value = false
+  }
+}
+
+async function handleWorkspaceSelect(candidate: (typeof workspaceCandidates.value)[number]) {
+  const selected = await selectWorkspace(candidate)
+  if (selected) {
+    isSidebarOpen.value = false
+  }
+}
+
+onMounted(() => {
+  void initializeWorkspace()
+})
 </script>
 
 <template>
   <div class="workspace">
-    <!-- 工具栏 -->
     <header class="toolbar">
       <button
         class="toolbar__btn"
@@ -76,31 +86,39 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
       </button>
     </header>
 
-    <!-- 主内容区 -->
     <main class="main-content">
       <WorkspaceSidebar
         :open="isSidebarOpen"
         :active-panel="activeSidebarPanel"
         :entries="sidebarEntries"
         :current-file="currentFile"
+        :workspace-ready="workspaceReady"
+        :workspace-name="workspaceName"
+        :candidates="workspaceCandidates"
+        :candidate-loading="candidatesLoading"
+        :selecting-workspace-path="selectingWorkspacePath"
         @close="closeSidebar"
         @switch-panel="switchSidebarPanel"
-        @select-file="openFile"
+        @select-file="handleEntrySelect"
+        @select-workspace="handleWorkspaceSelect"
+        @refresh-candidates="loadWorkspaceCandidates"
       />
 
-      <!-- 编辑器 -->
       <section class="editor-pane">
-        <CodeEditor v-model="code" />
+        <CodeEditor v-model="code" :readonly="isEditorReadonly" />
       </section>
     </main>
 
-    <!-- 状态栏 -->
     <footer class="status-bar">
-      <span class="status-bar__item status-bar__item--purple">纯文本</span>
+      <span class="status-bar__item status-bar__item--purple">
+        {{ workspaceReady ? '工作区模式' : '欢迎页' }}
+      </span>
       <span class="status-bar__item">{{ currentFileName }}</span>
       <span class="status-bar__spacer"></span>
       <span class="status-bar__item status-bar__item--cyan">UTF-8</span>
-      <span class="status-bar__item status-bar__item--pink">Ln 4, Col 22</span>
+      <span class="status-bar__item" :class="currentError ? 'status-bar__item--error' : 'status-bar__item--pink'">
+        {{ loading || fileTreeLoading ? '加载中' : statusText }}
+      </span>
     </footer>
   </div>
 </template>
@@ -114,7 +132,6 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
   color: var(--text-primary);
 }
 
-/* ===== Toolbar ===== */
 .toolbar {
   display: flex;
   align-items: center;
@@ -175,7 +192,6 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
   flex: 1;
 }
 
-/* ===== Main Content ===== */
 .main-content {
   position: relative;
   display: flex;
@@ -183,7 +199,6 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
   overflow: hidden;
 }
 
-/* ===== Editor Pane ===== */
 .editor-pane {
   flex: 1;
   overflow: hidden;
@@ -191,7 +206,6 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
   width: 100%;
 }
 
-/* ===== Status Bar ===== */
 .status-bar {
   display: flex;
   align-items: center;
@@ -219,6 +233,10 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
 
 .status-bar__item--cyan {
   color: var(--accent-cyan);
+}
+
+.status-bar__item--error {
+  color: var(--error);
 }
 
 .status-bar__spacer {

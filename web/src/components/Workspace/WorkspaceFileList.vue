@@ -6,6 +6,8 @@ defineProps<{
   currentFile: string
 }>()
 
+const indentSize = 14
+
 const emit = defineEmits<{
   select: [entry: SidebarEntry]
 }>()
@@ -28,7 +30,9 @@ function handleSelect(entry: SidebarEntry) {
       }"
       @click="handleSelect(entry)"
     >
-      <span class="file-tree__name">{{ entry.name }}</span>
+      <span class="file-tree__name" :style="{ paddingLeft: `${entry.depth * indentSize}px` }">
+        {{ entry.name }}
+      </span>
     </button>
   </div>
 </template>
