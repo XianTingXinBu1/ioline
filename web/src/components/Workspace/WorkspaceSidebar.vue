@@ -2,9 +2,9 @@
 import { FolderTree, Settings2 } from '@lucide/vue'
 import WorkspaceEmptyState from './WorkspaceEmptyState.vue'
 import WorkspaceFileList from './WorkspaceFileList.vue'
-import type { SidebarEntry, WorkspaceCandidate } from './types'
+import type { SidebarEntry } from './types'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean
     activePanel: 'files' | 'settings'
@@ -12,18 +12,14 @@ withDefaults(
     currentFile: string
     workspaceReady?: boolean
     workspaceName?: string
-    candidates?: WorkspaceCandidate[]
-    candidateLoading?: boolean
-    selectingWorkspacePath?: string | null
+    workspacePickerOpen?: boolean
   }>(),
   {
     open: false,
     activePanel: 'files',
     workspaceReady: false,
     workspaceName: '',
-    candidates: () => [],
-    candidateLoading: false,
-    selectingWorkspacePath: null,
+    workspacePickerOpen: false,
   },
 )
 
@@ -31,9 +27,36 @@ const emit = defineEmits<{
   close: []
   switchPanel: [panel: 'files' | 'settings']
   selectFile: [entry: SidebarEntry]
-  selectWorkspace: [candidate: WorkspaceCandidate]
-  refreshCandidates: []
+  openWorkspacePicker: []
 }>()
+
+const longPressDelay = 550
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+let longPressTriggered = false
+
+function startWorkspaceIconPress() {
+  longPressTriggered = false
+  longPressTimer = setTimeout(() => {
+    longPressTriggered = true
+    emit('openWorkspacePicker')
+  }, longPressDelay)
+}
+
+function cancelWorkspaceIconPress() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+
+function handleWorkspaceIconClick() {
+  if (longPressTriggered) {
+    longPressTriggered = false
+    return
+  }
+
+  emit('switchPanel', 'files')
+}
 </script>
 
 <template>
@@ -54,8 +77,12 @@ const emit = defineEmits<{
         <button
           class="sidebar-rail__btn"
           :class="{ 'sidebar-rail__btn--active': activePanel === 'files' }"
-          title="文件树"
-          @click="emit('switchPanel', 'files')"
+          :title="workspaceReady ? '文件树（长按可重新选择工作区）' : '文件树'"
+          @pointerdown="startWorkspaceIconPress"
+          @pointerup="cancelWorkspaceIconPress"
+          @pointerleave="cancelWorkspaceIconPress"
+          @pointercancel="cancelWorkspaceIconPress"
+          @click="handleWorkspaceIconClick"
         >
           <FolderTree aria-hidden="true" />
         </button>
@@ -86,11 +113,7 @@ const emit = defineEmits<{
           />
           <WorkspaceEmptyState
             v-else
-            :candidates="candidates"
-            :loading="candidateLoading"
-            :selecting-path="selectingWorkspacePath"
-            @select-workspace="emit('selectWorkspace', $event)"
-            @refresh-candidates="emit('refreshCandidates')"
+            @open-workspace-picker="emit('openWorkspacePicker')"
           />
         </template>
 

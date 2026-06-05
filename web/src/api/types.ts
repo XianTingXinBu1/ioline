@@ -34,15 +34,15 @@ export interface WorkspaceCurrentResponse {
   setAt?: string
 }
 
-export interface WorkspaceCandidateItem {
+export interface WorkspaceDirectoryItemResponse {
   name: string
   path: string
-  exists: boolean
-  source: string
 }
 
-export interface WorkspaceCandidatesResponse {
-  items: WorkspaceCandidateItem[]
+export interface WorkspaceDirectoriesResponse {
+  currentPath: string
+  parentPath: string
+  items: WorkspaceDirectoryItemResponse[]
 }
 
 export interface SetWorkspaceRequest {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 )
@@ -94,6 +93,8 @@ func (s *Service) Clear() Info {
 }
 
 // Candidates returns a stable, de-duplicated list of suggested workspace roots.
+// It always tries to include the current working directory and the user home
+// directory first so the frontend workspace picker has immediate usable options.
 func (s *Service) Candidates() []Candidate {
 	current := s.Current()
 	seen := make(map[string]struct{})
@@ -114,36 +115,36 @@ func (s *Service) Candidates() []Candidate {
 		if err != nil || !stat.IsDir() {
 			return
 		}
+
+		name := filepath.Base(absPath)
+		if name == string(filepath.Separator) || name == "." || name == "" {
+			name = absPath
+		}
+
 		seen[absPath] = struct{}{}
 		items = append(items, Candidate{
-			Name:   filepath.Base(absPath),
+			Name:   name,
 			Path:   absPath,
 			Exists: true,
 			Source: source,
 		})
 	}
 
+	cwd, err := os.Getwd()
+	if err == nil {
+		appendCandidate(cwd, "default")
+	}
+
+	homeDir, _ := os.UserHomeDir()
+	appendCandidate(homeDir, "default")
+
 	if current.IsSet {
 		appendCandidate(current.RootPath, "current")
 	}
 
-	homeDir, _ := os.UserHomeDir()
 	appendCandidate(filepath.Join(homeDir, "project"), "suggested")
 	appendCandidate(filepath.Join(homeDir, "projects"), "suggested")
 	appendCandidate(filepath.Join(homeDir, "workspace"), "suggested")
-	appendCandidate(homeDir, "default")
-
-	cwd, err := os.Getwd()
-	if err == nil {
-		appendCandidate(cwd, "current")
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Source != items[j].Source {
-			return items[i].Source < items[j].Source
-		}
-		return items[i].Path < items[j].Path
-	})
 
 	return items
 }

@@ -5,7 +5,7 @@
  */
 import { ref, watch, onMounted, onUnmounted, type Ref } from 'vue'
 import { EditorView, basicSetup } from 'codemirror'
-import { Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state'
 import { highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { useZoom } from '@/composables/useZoom'
@@ -27,6 +27,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  focusChange: [focused: boolean]
+  contentInput: []
 }>()
 
 const editorRef: Ref<HTMLDivElement | null> = ref(null)
@@ -86,9 +88,13 @@ function createEditor() {
       if (trs.some((tr) => tr.docChanged)) {
         const value = view?.state.doc.toString() ?? ''
         emit('update:modelValue', value)
+        emit('contentInput')
       }
     },
   })
+
+  view.dom.addEventListener('focusin', () => emit('focusChange', true))
+  view.dom.addEventListener('focusout', () => emit('focusChange', false))
 
   unwatchZoom = onChange((size) => {
     view?.dispatch({
@@ -137,6 +143,43 @@ onUnmounted(() => {
   destroyEditor()
 })
 
+function insertText(text: string) {
+  if (!view || props.readonly) return
+  const sel = view.state.selection.main
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: text },
+    selection: EditorSelection.cursor(sel.from + text.length),
+  })
+  view.focus()
+}
+
+function triggerKey(name: 'Tab' | 'Escape' | 'Enter', modifiers?: { ctrl?: boolean; alt?: boolean }) {
+  if (!view) return
+  view.focus()
+  const event = new KeyboardEvent('keydown', {
+    key: name === 'Escape' ? 'Escape' : name,
+    code: name === 'Tab' ? 'Tab' : name === 'Enter' ? 'Enter' : 'Escape',
+    ctrlKey: Boolean(modifiers?.ctrl),
+    altKey: Boolean(modifiers?.alt),
+    bubbles: true,
+    cancelable: true,
+  })
+  view.contentDOM.dispatchEvent(event)
+
+  if (event.defaultPrevented) {
+    return
+  }
+
+  if (name === 'Tab') {
+    insertText('\t')
+    return
+  }
+
+  if (name === 'Enter' && !props.readonly) {
+    insertText('\n')
+  }
+}
+
 defineExpose({
   getSelection(): string {
     if (!view) return ''
@@ -146,6 +189,8 @@ defineExpose({
   focus() {
     view?.focus()
   },
+  insertText,
+  triggerKey,
 })
 </script>
 

@@ -17,7 +17,7 @@ func main() {
 
 	addr := os.Getenv("IOLINE_SERVER_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = ":9650"
 	}
 
 	app := server.New(server.Config{

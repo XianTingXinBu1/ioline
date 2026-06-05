@@ -1,9 +1,5 @@
 import { api } from './client'
-import type {
-  WorkspaceCandidatesResponse,
-  WorkspaceCurrentResponse,
-  SetWorkspaceRequest,
-} from './types'
+import type { WorkspaceCurrentResponse, WorkspaceDirectoriesResponse, SetWorkspaceRequest } from './types'
 
 export const workspaceApi = {
   getCurrent(): Promise<WorkspaceCurrentResponse> {
@@ -18,7 +14,12 @@ export const workspaceApi = {
     return api.delete('/workspace/current')
   },
 
-  getCandidates(): Promise<WorkspaceCandidatesResponse> {
-    return api.get('/workspaces/candidates')
+  getDirectories(path?: string): Promise<WorkspaceDirectoriesResponse> {
+    const params = new URLSearchParams()
+    if (path) {
+      params.set('path', path)
+    }
+    const suffix = params.toString()
+    return api.get(`/workspace/directories${suffix ? `?${suffix}` : ''}`)
   },
 }

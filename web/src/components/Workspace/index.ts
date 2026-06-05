@@ -1,3 +1,7 @@
+export { default as EditorQuickKeys } from './EditorQuickKeys.vue'
 export { default as WorkspaceEmptyState } from './WorkspaceEmptyState.vue'
+export { default as WorkspacePickerDialog } from './WorkspacePickerDialog.vue'
 export { default as WorkspaceSidebar } from './WorkspaceSidebar.vue'
-export type { SidebarEntry, WorkspaceCandidate } from './types'
+export { default as WorkspaceTabs } from './WorkspaceTabs.vue'
+export { default as WorkspaceToast } from './WorkspaceToast.vue'
+export type { OpenFileTab, SidebarEntry, WorkspaceDirectory } from './types'

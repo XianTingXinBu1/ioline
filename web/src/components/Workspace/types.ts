@@ -9,8 +9,13 @@ export type SidebarEntry = {
   loading?: boolean
 }
 
-export type WorkspaceCandidate = {
+export type WorkspaceDirectory = {
   name: string
   path: string
-  source: string
+}
+
+export type OpenFileTab = {
+  name: string
+  path: string
+  dirty?: boolean
 }
