@@ -15,8 +15,13 @@ import (
 func main() {
 	logger := log.New(os.Stdout, "[ioline] ", log.LstdFlags)
 
+	addr := os.Getenv("IOLINE_SERVER_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+
 	app := server.New(server.Config{
-		Addr:   ":8080",
+		Addr:   addr,
 		Logger: logger,
 	})
 

@@ -3,6 +3,7 @@ bin/
 dist/
 web-dist/
 .tmp/
+.runtime/
 
 # Node
 node_modules/

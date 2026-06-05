@@ -1,10 +1,14 @@
-.PHONY: help dev dev-backend dev-frontend build build-backend build-frontend check check-backend check-frontend
+.PHONY: help dev stop status dev-backend stop-backend dev-reset dev-frontend build build-backend build-frontend check check-backend check-frontend
 
 help:
 	@echo "Available targets:"
-	@echo "  make dev            # start backend and frontend dev servers"
-	@echo "  make dev-backend    # start backend dev server"
-	@echo "  make dev-frontend   # start frontend dev server"
+	@echo "  make dev            # start backend and frontend dev services"
+	@echo "  make stop           # stop backend and frontend dev services"
+	@echo "  make status         # show backend and frontend dev status"
+	@echo "  make dev-backend    # start backend dev server only"
+	@echo "  make stop-backend   # stop managed backend dev server"
+	@echo "  make dev-reset      # clean backend dev processes and pid files"
+	@echo "  make dev-frontend   # start frontend dev server only"
 	@echo "  make build          # build backend and frontend"
 	@echo "  make build-backend  # build backend binary to bin/ioline-server"
 	@echo "  make build-frontend # build frontend assets"
@@ -13,17 +17,38 @@ help:
 	@echo "  make check-frontend # run frontend build check"
 
 dev:
-	@echo "Starting backend and frontend..."
-	@(trap 'kill 0' INT TERM EXIT; \
-		$(MAKE) dev-backend & \
-		$(MAKE) dev-frontend & \
-		wait)
+	bash scripts/dev-start.sh
+
+stop:
+	bash scripts/dev-stop.sh
+
+status:
+	bash scripts/dev-status.sh
 
 dev-backend:
-	go run ./apps/server
+	bash scripts/dev-backend.sh
+
+stop-backend:
+	@if [ -f .tmp/ioline-backend.pid ]; then \
+		PID=$$(cat .tmp/ioline-backend.pid); \
+		kill $$PID 2>/dev/null || true; \
+		rm -f .tmp/ioline-backend.pid; \
+		echo "[ioline] stopped managed backend $$PID"; \
+	else \
+		echo "[ioline] no managed backend pid file found"; \
+	fi
+
+dev-reset:
+	-pkill -f 'go run ./apps/server' || true
+	-pkill -f '/data/data/.*/project/ioline/server' || true
+	-pkill -f '/data/data/.*/project/ioline/bin/ioline-server' || true
+	-pkill -f "sh -c \(trap 'kill 0' INT TERM EXIT;.*make dev-backend.*make dev-frontend.*wait\)" || true
+	-fuser -k -n tcp 9650 >/dev/null 2>&1 || true
+	-rm -f .tmp/ioline-backend.pid .tmp/ioline-backend.log .tmp/dev-backend.out .tmp/dev-backend.wrapper.pid
+	@echo "[ioline] backend dev processes and pid files cleaned"
 
 dev-frontend:
-	cd web && npm run dev -- --host 0.0.0.0
+	bash scripts/dev-frontend.sh
 
 build: build-backend build-frontend
 
