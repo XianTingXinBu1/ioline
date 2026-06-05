@@ -1,4 +1,4 @@
-.PHONY: help dev stop status dev-backend stop-backend dev-reset dev-frontend build build-backend build-frontend check check-backend check-frontend
+.PHONY: help dev stop status dev-backend stop-backend dev-reset dev-frontend build build-backend build-frontend check check-backend check-frontend test-backend test-backend-smoke
 
 help:
 	@echo "Available targets:"
@@ -15,6 +15,8 @@ help:
 	@echo "  make check          # run conservative syntax/build checks"
 	@echo "  make check-backend  # run go build check"
 	@echo "  make check-frontend # run frontend build check"
+	@echo "  make test-backend   # run backend unit and handler tests"
+	@echo "  make test-backend-smoke # run backend smoke test script against a running dev server"
 
 dev:
 	bash scripts/dev-start.sh
@@ -66,3 +68,9 @@ check-backend:
 
 check-frontend:
 	cd web && npm run build
+
+test-backend:
+	go test ./...
+
+test-backend-smoke:
+	bash scripts/test_backend.sh

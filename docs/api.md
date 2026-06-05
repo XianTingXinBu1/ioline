@@ -39,7 +39,15 @@ http://127.0.0.1:9650
 
 当前后端默认**无工作区**。
 
-多数文件接口和终端接口在调用前，必须先设置工作区：
+以下接口类型在调用前必须先设置工作区：
+
+- 文件接口
+- 搜索接口
+- 终端创建与终端会话操作接口
+
+当前终端接口中的 `GET /api/terminals` 为例外，可在未设置工作区时调用，用于查看当前活动终端列表。
+
+设置工作区接口：
 
 ```http
 PUT /api/workspace/current
@@ -242,6 +250,9 @@ GET /api/workspace/directories?path=/some/absolute/path
   4. `os.Getwd()`
 - 只返回子目录，不返回文件
 - `parentPath` 到根时返回空字符串
+- 常见失败场景：
+  - 目录不存在：`NOT_FOUND`
+  - 非目录路径或非法路径：`INVALID_PATH`
 
 ### 成功响应示例
 
@@ -353,6 +364,23 @@ GET /api/files/list?path=internal
 GET /api/files/stat?path=go.mod
 ```
 
+### 成功响应示例
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "go.mod",
+    "path": "go.mod",
+    "type": "file",
+    "size": 25,
+    "modifiedAt": "2026-06-05T10:00:00Z",
+    "readonly": false,
+    "hidden": false
+  }
+}
+```
+
 ---
 
 ## 6. 文件内容接口
@@ -363,6 +391,23 @@ GET /api/files/stat?path=go.mod
 
 ```http
 GET /api/file/content?path=go.mod
+```
+
+### 成功响应示例
+
+```json
+{
+  "success": true,
+  "data": {
+    "path": "go.mod",
+    "content": "module ioline\n",
+    "size": 14,
+    "modifiedAt": "2026-06-05T10:00:00Z",
+    "readonly": false,
+    "binary": false,
+    "lineEnding": "lf"
+  }
+}
 ```
 
 ### 限制与保护
@@ -407,6 +452,15 @@ POST /api/files
 Content-Type: application/json
 ```
 
+### 请求体
+
+```json
+{
+  "path": "tmp/demo.txt",
+  "content": "hello"
+}
+```
+
 ---
 
 ## 7.2 删除文件或目录
@@ -416,6 +470,15 @@ Content-Type: application/json
 ```http
 DELETE /api/files
 Content-Type: application/json
+```
+
+### 请求体
+
+```json
+{
+  "path": "tmp/demo.txt",
+  "recursive": false
+}
 ```
 
 ---
@@ -429,6 +492,14 @@ POST /api/directories
 Content-Type: application/json
 ```
 
+### 请求体
+
+```json
+{
+  "path": "tmp/demo-dir"
+}
+```
+
 ---
 
 ## 7.4 重命名或移动文件/目录
@@ -438,6 +509,15 @@ Content-Type: application/json
 ```http
 PATCH /api/files/move
 Content-Type: application/json
+```
+
+### 请求体
+
+```json
+{
+  "fromPath": "tmp/demo.txt",
+  "toPath": "tmp/demo-renamed.txt"
+}
 ```
 
 ---
@@ -461,6 +541,9 @@ GET /api/search/files?query=server
 - 默认不区分大小写
 - 当前会忽略 `.git`、`node_modules`、`.runtime`、`.tmp`
 - 返回结果上限为 100
+- 常见失败场景：
+  - 未设置工作区：`WORKSPACE_NOT_CONFIGURED`
+  - `query` 为空：`INVALID_QUERY`
 
 ### 成功响应示例
 
@@ -511,6 +594,10 @@ Content-Type: application/json
 - 跳过二进制文件、可执行文件和超大文件
 - 当前会忽略 `.git`、`node_modules`、`.runtime`、`.tmp`
 - 返回结果上限为 200
+- 常见失败场景：
+  - 未设置工作区：`WORKSPACE_NOT_CONFIGURED`
+  - `query` 为空：`INVALID_QUERY`
+  - 请求体非法 JSON：`INVALID_JSON`
 
 ### 成功响应示例
 
@@ -536,9 +623,12 @@ Content-Type: application/json
 
 ## 9. 终端接口
 
-终端接口依赖工作区，调用前必须先设置当前工作区。
+终端接口依赖工作区。当前实现中：
 
-## 8.1 获取终端会话列表
+- `GET /api/terminals` 可在未设置工作区时调用，用于查看当前活动终端列表
+- 其余终端创建与操作接口依赖当前工作区，调用前必须先设置当前工作区
+
+## 9.1 获取终端会话列表
 
 ### 请求
 
@@ -546,9 +636,28 @@ Content-Type: application/json
 GET /api/terminals
 ```
 
+### 成功响应示例
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "20260605123000-ioline-b",
+        "cwd": "/data/data/com.termux/files/home/project/ioline",
+        "shell": "/data/data/com.termux/files/usr/bin/bash",
+        "status": "running",
+        "createdAt": "2026-06-05T12:30:00Z"
+      }
+    ]
+  }
+}
+```
+
 ---
 
-## 8.2 创建终端会话
+## 9.2 创建终端会话
 
 ### 请求
 
@@ -576,7 +685,7 @@ Content-Type: application/json
 
 ---
 
-## 8.3 调整终端尺寸
+## 9.3 调整终端尺寸
 
 ### 请求
 
@@ -585,9 +694,18 @@ POST /api/terminals/{id}/resize
 Content-Type: application/json
 ```
 
+### 请求体
+
+```json
+{
+  "cols": 100,
+  "rows": 30
+}
+```
+
 ---
 
-## 8.4 关闭终端会话
+## 9.4 关闭终端会话
 
 ### 请求
 
@@ -595,9 +713,21 @@ Content-Type: application/json
 DELETE /api/terminals/{id}
 ```
 
+### 成功响应示例
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "20260605123000-ioline-b",
+    "status": "closed"
+  }
+}
+```
+
 ---
 
-## 8.5 终端 WebSocket 流
+## 9.5 终端 WebSocket 流
 
 ### 连接地址
 
@@ -616,7 +746,7 @@ ws://127.0.0.1:9650/api/terminals/{id}/stream
 
 ## 10. 前端接入建议
 
-## 9.1 推荐初始化顺序
+## 10.1 推荐初始化顺序
 
 前端启动后建议按这个顺序接入：
 
@@ -634,7 +764,6 @@ ws://127.0.0.1:9650/api/terminals/{id}/stream
 
 以下能力目前尚未提供独立 API：
 
-- 搜索 API
 - Git API
 - 文件变更监听
 - 设置/偏好配置

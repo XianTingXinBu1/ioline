@@ -9,6 +9,7 @@ make help
 make dev
 make build
 make check
+make test-backend
 ```
 
 ### 常用命令
@@ -23,6 +24,10 @@ make check
   - 构建后端与前端
 - `make check`
   - 进行保守的前后端构建检查
+- `make test-backend`
+  - 运行后端单元测试与 handler/API 测试（`go test ./...`）
+- `make test-backend-smoke`
+  - 对已运行的后端开发服务执行轻量联调脚本 `scripts/test_backend.sh`
 
 ## 其他文档
 
