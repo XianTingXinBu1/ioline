@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-BASE_URL="http://127.0.0.1:8080"
+BASE_URL="http://127.0.0.1:9650"
 WORKSPACE="/data/data/com.termux/files/home/project/ioline"
 TMP_WS_REL="tmp/api-test"
 TMP_FILE_REL="$TMP_WS_REL/hello.txt"
@@ -38,57 +38,74 @@ echo "[3] workspace candidates"
 resp=$(curl -sS "$BASE_URL/api/workspaces/candidates")
 assert_contains "$resp" '"items"'
 
-echo "[4] set workspace"
+echo "[4] browse workspace directories"
+resp=$(curl -sS "$BASE_URL/api/workspace/directories")
+assert_contains "$resp" '"currentPath"'
+assert_contains "$resp" '"items"'
+
+echo "[5] set workspace"
 resp=$(curl -sS -X PUT "$BASE_URL/api/workspace/current" \
   -H 'Content-Type: application/json' \
   -d "{\"rootPath\":\"$WORKSPACE\"}")
 assert_contains "$resp" '"isSet":true'
 
-echo "[5] get workspace"
+echo "[6] get workspace"
 resp=$(curl -sS "$BASE_URL/api/workspace/current")
 assert_contains "$resp" "$WORKSPACE"
 
-echo "[6] list files"
+echo "[7] search files"
+resp=$(curl -sS "$BASE_URL/api/search/files?query=server")
+assert_contains "$resp" '"items"'
+assert_contains "$resp" '"query":"server"'
+
+echo "[8] search text"
+resp=$(curl -sS -X POST "$BASE_URL/api/search/text" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"workspace"}')
+assert_contains "$resp" '"items"'
+assert_contains "$resp" '"query":"workspace"'
+
+echo "[9] list files"
 resp=$(curl -sS "$BASE_URL/api/files/list?path=.")
 assert_contains "$resp" '"items"'
 
-echo "[7] stat file"
+echo "[10] stat file"
 resp=$(curl -sS "$BASE_URL/api/files/stat?path=go.mod")
 assert_contains "$resp" '"name":"go.mod"'
 
-echo "[8] read file content"
+echo "[11] read file content"
 resp=$(curl -sS "$BASE_URL/api/file/content?path=go.mod")
 assert_contains "$resp" '"content":"module ioline'
 
-echo "[9] create directory"
+echo "[12] create directory"
 resp=$(curl -sS -X POST "$BASE_URL/api/directories" \
   -H 'Content-Type: application/json' \
   -d '{"path":"tmp/api-test"}')
 assert_contains "$resp" '"type":"directory"'
 
-echo "[10] create file"
+echo "[13] create file"
 resp=$(curl -sS -X POST "$BASE_URL/api/files" \
   -H 'Content-Type: application/json' \
   -d '{"path":"tmp/api-test/hello.txt","content":"hello terminal api"}')
 assert_contains "$resp" '"type":"file"'
 
-echo "[11] save file"
+echo "[14] save file"
 resp=$(curl -sS -X PUT "$BASE_URL/api/file/content" \
   -H 'Content-Type: application/json' \
   -d '{"path":"tmp/api-test/hello.txt","content":"hello updated"}')
 assert_contains "$resp" '"path":"tmp/api-test/hello.txt"'
 
-echo "[12] move file"
+echo "[15] move file"
 resp=$(curl -sS -X PATCH "$BASE_URL/api/files/move" \
   -H 'Content-Type: application/json' \
   -d '{"fromPath":"tmp/api-test/hello.txt","toPath":"tmp/api-test/hello-renamed.txt"}')
 assert_contains "$resp" '"toPath":"tmp/api-test/hello-renamed.txt"'
 
-echo "[13] list terminals"
+echo "[16] list terminals"
 resp=$(curl -sS "$BASE_URL/api/terminals")
 assert_contains "$resp" '"items"'
 
-echo "[14] create terminal"
+echo "[17] create terminal"
 resp=$(curl -sS -X POST "$BASE_URL/api/terminals" \
   -H 'Content-Type: application/json' \
   -d '{"cols":80,"rows":24}')
@@ -99,13 +116,13 @@ if [[ -z "$term_id" ]]; then
   exit 1
 fi
 
-echo "[15] resize terminal"
+echo "[18] resize terminal"
 resp=$(curl -sS -X POST "$BASE_URL/api/terminals/$term_id/resize" \
   -H 'Content-Type: application/json' \
   -d '{"cols":100,"rows":30}')
 assert_contains "$resp" '"cols":100'
 
-echo "[16] websocket terminal smoke test"
+echo "[19] websocket terminal smoke test"
 cat <<'EOF' >.tmp/ioline_ws_check.go
 package main
 
@@ -117,7 +134,7 @@ import (
 )
 
 func main() {
-  conn, _, err := websocket.DefaultDialer.Dial("ws://127.0.0.1:8080/api/terminals/TERM_ID/stream", nil)
+  conn, _, err := websocket.DefaultDialer.Dial("ws://127.0.0.1:9650/api/terminals/TERM_ID/stream", nil)
   if err != nil { panic(err) }
   defer conn.Close()
 
@@ -145,17 +162,17 @@ sed -i "s/TERM_ID/$term_id/g" .tmp/ioline_ws_check.go
 go run .tmp/ioline_ws_check.go >.tmp/ioline_ws_test.out
 assert_contains "$(cat .tmp/ioline_ws_test.out)" 'IOLINE_WS_OK'
 
-echo "[17] close terminal"
+echo "[20] close terminal"
 resp=$(curl -sS -X DELETE "$BASE_URL/api/terminals/$term_id")
 assert_contains "$resp" '"status":"closed"'
 
-echo "[18] delete test directory recursively"
+echo "[21] delete test directory recursively"
 resp=$(curl -sS -X DELETE "$BASE_URL/api/files" \
   -H 'Content-Type: application/json' \
   -d '{"path":"tmp/api-test","recursive":true}')
 assert_contains "$resp" '"type":"directory"'
 
-echo "[19] clear workspace"
+echo "[22] clear workspace"
 resp=$(curl -sS -X DELETE "$BASE_URL/api/workspace/current")
 assert_contains "$resp" '"isSet":false'
 

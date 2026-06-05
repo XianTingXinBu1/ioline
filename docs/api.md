@@ -9,7 +9,7 @@
 本地开发默认监听：
 
 ```txt
-http://127.0.0.1:8080
+http://127.0.0.1:9650
 ```
 
 ### 1.2 统一响应格式
@@ -81,6 +81,7 @@ tmp/demo.txt
 | `UNSUPPORTED_FILE` | 二进制文件或可执行文件不支持文本打开 |
 | `FILE_TOO_LARGE` | 文件过大，不允许按文本打开 |
 | `DIRECTORY_NOT_EMPTY` | 非空目录未开启递归删除 |
+| `INVALID_QUERY` | 搜索关键字为空或非法 |
 | `TERMINAL_LIMIT_REACHED` | 终端会话数量达到上限 |
 | `TERMINAL_NOT_FOUND` | 终端会话不存在 |
 | `INVALID_TERMINAL_SIZE` | 终端尺寸参数非法 |
@@ -222,7 +223,45 @@ DELETE /api/workspace/current
 
 ---
 
-## 4.4 获取工作区候选目录
+## 4.4 浏览工作区目录
+
+### 请求
+
+```http
+GET /api/workspace/directories?path=/some/absolute/path
+```
+
+### 说明
+
+- 用于工作区选择前的目录浏览
+- `path` 允许传绝对路径
+- `path` 为空时，后端按以下优先级选择起始目录：
+  1. 当前已设置工作区
+  2. `$HOME/project`
+  3. `$HOME`
+  4. `os.Getwd()`
+- 只返回子目录，不返回文件
+- `parentPath` 到根时返回空字符串
+
+### 成功响应示例
+
+```json
+{
+  "success": true,
+  "data": {
+    "currentPath": "/data/data/com.termux/files/home/project",
+    "parentPath": "/data/data/com.termux/files/home",
+    "items": [
+      {
+        "name": "ioline",
+        "path": "/data/data/com.termux/files/home/project/ioline"
+      }
+    ]
+  }
+}
+```
+
+## 4.5 获取工作区候选目录
 
 ### 请求
 
@@ -403,7 +442,99 @@ Content-Type: application/json
 
 ---
 
-## 8. 终端接口
+## 8. 搜索接口
+
+搜索接口依赖当前工作区，调用前必须先设置当前工作区。
+
+## 8.1 搜索文件名或目录名
+
+### 请求
+
+```http
+GET /api/search/files?query=server
+```
+
+### 说明
+
+- 在当前 workspace 内递归搜索
+- 同时匹配文件名和目录名
+- 默认不区分大小写
+- 当前会忽略 `.git`、`node_modules`、`.runtime`、`.tmp`
+- 返回结果上限为 100
+
+### 成功响应示例
+
+```json
+{
+  "success": true,
+  "data": {
+    "query": "server",
+    "items": [
+      {
+        "name": "server.go",
+        "path": "internal/server/server.go",
+        "type": "file"
+      },
+      {
+        "name": "server",
+        "path": "internal/server",
+        "type": "directory"
+      }
+    ],
+    "total": 2,
+    "limit": 100
+  }
+}
+```
+
+## 8.2 搜索文本内容
+
+### 请求
+
+```http
+POST /api/search/text
+Content-Type: application/json
+```
+
+### 请求体
+
+```json
+{
+  "query": "workspace"
+}
+```
+
+### 说明
+
+- 在当前 workspace 内递归搜索文本内容
+- 默认不区分大小写
+- 跳过二进制文件、可执行文件和超大文件
+- 当前会忽略 `.git`、`node_modules`、`.runtime`、`.tmp`
+- 返回结果上限为 200
+
+### 成功响应示例
+
+```json
+{
+  "success": true,
+  "data": {
+    "query": "workspace",
+    "items": [
+      {
+        "path": "internal/server/server.go",
+        "line": 28,
+        "column": 3,
+        "lineText": "\tworkspaceService *workspace.Service",
+        "matchText": "workspace"
+      }
+    ],
+    "total": 1,
+    "limit": 200
+  }
+}
+```
+
+## 9. 终端接口
 
 终端接口依赖工作区，调用前必须先设置当前工作区。
 
@@ -471,7 +602,7 @@ DELETE /api/terminals/{id}
 ### 连接地址
 
 ```txt
-ws://127.0.0.1:8080/api/terminals/{id}/stream
+ws://127.0.0.1:9650/api/terminals/{id}/stream
 ```
 
 ### 当前消息格式
@@ -483,7 +614,7 @@ ws://127.0.0.1:8080/api/terminals/{id}/stream
 
 ---
 
-## 9. 前端接入建议
+## 10. 前端接入建议
 
 ## 9.1 推荐初始化顺序
 
@@ -492,14 +623,14 @@ ws://127.0.0.1:8080/api/terminals/{id}/stream
 1. `GET /api/healthz`
 2. `GET /api/system/info`
 3. `GET /api/workspace/current`
-4. 若未设置工作区，调用 `GET /api/workspaces/candidates`
+4. 若未设置工作区，可调用 `GET /api/workspaces/candidates` 或 `GET /api/workspace/directories`
 5. 用户选择后调用 `PUT /api/workspace/current`
 6. `GET /api/files/list?path=.`
 7. 根据文件树继续请求 `list`、`stat`、`content`
 
 ---
 
-## 10. 当前未实现的接口范围
+## 11. 当前未实现的接口范围
 
 以下能力目前尚未提供独立 API：
 

@@ -17,6 +17,7 @@ import (
 
 	"ioline/internal/api"
 	"ioline/internal/files"
+	"ioline/internal/search"
 	"ioline/internal/terminal"
 	"ioline/internal/workspace"
 )
@@ -33,6 +34,7 @@ type Server struct {
 	logger           *log.Logger
 	workspaceService *workspace.Service
 	fileService      *files.Service
+	searchService    *search.Service
 	terminalService  *terminal.Service
 	upgrader         websocket.Upgrader
 }
@@ -46,13 +48,14 @@ func New(cfg Config) *Server {
 
 	addr := cfg.Addr
 	if addr == "" {
-		addr = ":8080"
+		addr = ":9650"
 	}
 
 	s := &Server{
 		logger:           logger,
 		workspaceService: workspace.NewService(),
 		fileService:      files.NewService(),
+		searchService:    search.NewService(),
 		terminalService:  terminal.NewService(),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -63,8 +66,11 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/system/info", s.handleSystemInfo)
 	mux.HandleFunc("/api/workspace/current", s.handleWorkspaceCurrent)
+	mux.HandleFunc("/api/workspace/directories", s.handleWorkspaceDirectories)
 	mux.HandleFunc("/api/workspaces/candidates", s.handleWorkspaceCandidates)
 	mux.HandleFunc("/api/files/list", s.handleFilesList)
+	mux.HandleFunc("/api/search/files", s.handleSearchFiles)
+	mux.HandleFunc("/api/search/text", s.handleSearchText)
 	mux.HandleFunc("/api/files/stat", s.handleFilesStat)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/files/move", s.handleFilesMove)
@@ -158,6 +164,79 @@ func (s *Server) handleWorkspaceCandidates(w http.ResponseWriter, r *http.Reques
 	}
 
 	api.WriteJSON(w, http.StatusOK, map[string]any{"items": s.workspaceService.Candidates()})
+}
+
+func (s *Server) handleWorkspaceDirectories(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	result, err := s.workspaceService.BrowseDirectories(r.URL.Query().Get("path"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			api.WriteError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+			return
+		}
+		api.WriteError(w, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return
+	}
+
+	api.WriteJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSearchFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	rootPath, ok := s.requireWorkspace(w)
+	if !ok {
+		return
+	}
+
+	result, err := s.searchService.FindFiles(rootPath, r.URL.Query().Get("query"))
+	if err != nil {
+		if errors.Is(err, search.ErrQueryRequired) {
+			api.WriteError(w, http.StatusBadRequest, "INVALID_QUERY", err.Error())
+			return
+		}
+		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
+		return
+	}
+
+	api.WriteJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSearchText(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	rootPath, ok := s.requireWorkspace(w)
+	if !ok {
+		return
+	}
+
+	var payload search.TextSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		api.WriteError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON request body")
+		return
+	}
+
+	result, err := s.searchService.FindText(rootPath, payload)
+	if err != nil {
+		if errors.Is(err, search.ErrQueryRequired) {
+			api.WriteError(w, http.StatusBadRequest, "INVALID_QUERY", err.Error())
+			return
+		}
+		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
+		return
+	}
+
+	api.WriteJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
