@@ -1,0 +1,21 @@
+# Build outputs
+bin/
+dist/
+web-dist/
+
+# Go
+*.test
+*.out
+coverage.out
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
