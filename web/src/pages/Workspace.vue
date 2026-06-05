@@ -5,12 +5,7 @@
  */
 import { computed, ref } from 'vue'
 import { CodeEditor } from '@/components/Editor'
-
-type SidebarEntry = {
-  name: string
-  path: string
-  kind: 'file' | 'directory'
-}
+import { WorkspaceSidebar, type SidebarEntry } from '@/components/Workspace'
 
 const code = ref(`import { createApp } from 'vue'
 import App from './App.vue'
@@ -83,76 +78,15 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
 
     <!-- 主内容区 -->
     <main class="main-content">
-      <div
-        v-if="isSidebarOpen"
-        class="sidebar-backdrop"
-        aria-hidden="true"
-        @click="closeSidebar"
-      ></div>
-
-      <!-- 文件树抽屉 -->
-      <aside
-        id="workspace-sidebar"
-        class="file-tree"
-        :class="{ 'file-tree--open': isSidebarOpen }"
-      >
-        <div class="sidebar-rail">
-          <button
-            class="sidebar-rail__btn"
-            :class="{ 'sidebar-rail__btn--active': activeSidebarPanel === 'files' }"
-            title="文件树"
-            @click="switchSidebarPanel('files')"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M4 6.75A1.75 1.75 0 0 1 5.75 5h4.19c.5 0 .97.21 1.31.57l1.18 1.3c.1.11.25.18.4.18h5.42A1.75 1.75 0 0 1 20 8.8v9.45A1.75 1.75 0 0 1 18.25 20H5.75A1.75 1.75 0 0 1 4 18.25V6.75Zm2.25-.25a.25.25 0 0 0-.25.25v1.3h12.25a.25.25 0 0 0 .25-.25v-.55a.25.25 0 0 0-.25-.25h-5.42a1.75 1.75 0 0 1-1.3-.57l-1.18-1.3a.25.25 0 0 0-.19-.08H6.25Z"
-              />
-            </svg>
-          </button>
-          <button
-            class="sidebar-rail__btn"
-            :class="{ 'sidebar-rail__btn--active': activeSidebarPanel === 'settings' }"
-            title="设置"
-            @click="switchSidebarPanel('settings')"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M10.77 3.68a1 1 0 0 1 .96-.68h.54a1 1 0 0 1 .96.68l.33 1.02a7.97 7.97 0 0 1 1.58.66l.98-.45a1 1 0 0 1 1.15.2l.38.38a1 1 0 0 1 .2 1.15l-.45.98c.25.5.47 1.02.65 1.57l1.03.34a1 1 0 0 1 .68.95v.54a1 1 0 0 1-.68.96l-1.03.33a7.9 7.9 0 0 1-.65 1.58l.45.98a1 1 0 0 1-.2 1.15l-.38.38a1 1 0 0 1-1.15.2l-.98-.45a7.97 7.97 0 0 1-1.58.66l-.33 1.02a1 1 0 0 1-.96.68h-.54a1 1 0 0 1-.96-.68l-.33-1.02a7.97 7.97 0 0 1-1.58-.66l-.98.45a1 1 0 0 1-1.15-.2l-.38-.38a1 1 0 0 1-.2-1.15l.45-.98a7.9 7.9 0 0 1-.65-1.58l-1.03-.33a1 1 0 0 1-.68-.96v-.54a1 1 0 0 1 .68-.95l1.03-.34a7.9 7.9 0 0 1 .65-1.57l-.45-.98a1 1 0 0 1 .2-1.15l.38-.38a1 1 0 0 1 1.15-.2l.98.45a7.97 7.97 0 0 1 1.58-.66l.33-1.02ZM12 15.25A3.25 3.25 0 1 0 12 8.75a3.25 3.25 0 0 0 0 6.5Z"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <div class="sidebar-panel">
-          <div class="file-tree__header-row">
-            <div class="file-tree__header">{{ activeSidebarPanel === 'files' ? '文件' : '设置' }}</div>
-            <button class="file-tree__close" title="关闭侧栏" @click="closeSidebar">✕</button>
-          </div>
-
-          <div v-if="activeSidebarPanel === 'files'" class="file-tree__list">
-            <button
-              v-for="entry in sidebarEntries"
-              :key="entry.path"
-              class="file-tree__item"
-              :class="{
-                'file-tree__item--active': entry.kind === 'file' && currentFile === entry.path,
-                'file-tree__item--directory': entry.kind === 'directory',
-                'file-tree__item--file': entry.kind === 'file',
-              }"
-              @click="openFile(entry)"
-            >
-              <span class="file-tree__name">{{ entry.name }}</span>
-            </button>
-          </div>
-
-          <div v-else class="settings-panel">
-            <div class="settings-panel__card">
-              <div class="settings-panel__title">设置面板占位</div>
-              <div class="settings-panel__desc">后续可在这里接入编辑器偏好、主题与账户相关配置。</div>
-            </div>
-          </div>
-        </div>
-      </aside>
+      <WorkspaceSidebar
+        :open="isSidebarOpen"
+        :active-panel="activeSidebarPanel"
+        :entries="sidebarEntries"
+        :current-file="currentFile"
+        @close="closeSidebar"
+        @switch-panel="switchSidebarPanel"
+        @select-file="openFile"
+      />
 
       <!-- 编辑器 -->
       <section class="editor-pane">
@@ -247,188 +181,6 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
   display: flex;
   flex: 1;
   overflow: hidden;
-}
-
-.sidebar-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.42);
-  z-index: 9;
-}
-
-/* ===== File Tree ===== */
-.file-tree {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: min(86vw, 360px);
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
-  overflow: hidden;
-  display: flex;
-  transform: translateX(-100%);
-  transition: transform 0.2s ease;
-  z-index: 10;
-}
-
-.file-tree--open {
-  transform: translateX(0);
-}
-
-.sidebar-rail {
-  width: 56px;
-  background: rgba(0, 0, 0, 0.12);
-  border-right: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 8px;
-  flex-shrink: 0;
-}
-
-.sidebar-rail__btn {
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-tertiary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
-}
-
-.sidebar-rail__btn svg {
-  width: 22px;
-  height: 22px;
-  fill: currentColor;
-}
-
-.sidebar-rail__btn:active {
-  background: var(--border-color);
-}
-
-.sidebar-rail__btn--active {
-  background: rgba(230, 57, 124, 0.14);
-  color: var(--text-primary);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.sidebar-panel {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.file-tree__header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 10px 4px 16px;
-}
-
-.file-tree__header {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-tertiary);
-}
-
-.file-tree__close {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  font-size: 16px;
-}
-
-.file-tree__close:active {
-  background: var(--border-color);
-}
-
-.file-tree__list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0 6px 8px;
-  overflow-y: auto;
-}
-
-.file-tree__item {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  padding: 10px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 13px;
-  text-align: left;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  touch-action: manipulation;
-  transition: background 0.15s, color 0.15s;
-}
-
-.file-tree__item:active {
-  background: var(--border-color);
-}
-
-.file-tree__item--file {
-  color: var(--text-secondary);
-}
-
-.file-tree__item--directory {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.file-tree__item--active {
-  background: rgba(230, 57, 124, 0.14);
-  color: var(--text-primary);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.file-tree__name {
-  display: block;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-panel {
-  flex: 1;
-  padding: 12px;
-  overflow-y: auto;
-}
-
-.settings-panel__card {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 14px;
-}
-
-.settings-panel__title {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.settings-panel__desc {
-  margin-top: 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
 }
 
 /* ===== Editor Pane ===== */
