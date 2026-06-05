@@ -18,4 +18,7 @@ export type OpenFileTab = {
   name: string
   path: string
   dirty?: boolean
+  temporary?: boolean
+  closable?: boolean
+  draft?: string
 }

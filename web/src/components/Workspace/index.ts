@@ -1,4 +1,5 @@
 export { default as EditorQuickKeys } from './EditorQuickKeys.vue'
+export { default as WorkspaceConfirmDialog } from './WorkspaceConfirmDialog.vue'
 export { default as WorkspaceEmptyState } from './WorkspaceEmptyState.vue'
 export { default as WorkspacePickerDialog } from './WorkspacePickerDialog.vue'
 export { default as WorkspaceSidebar } from './WorkspaceSidebar.vue'

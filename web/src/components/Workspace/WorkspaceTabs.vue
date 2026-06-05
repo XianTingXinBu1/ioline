@@ -2,7 +2,7 @@
 import { Save } from '@lucide/vue'
 import type { OpenFileTab } from './types'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     tabs: OpenFileTab[]
     activePath?: string
@@ -26,7 +26,12 @@ const longPressDelay = 550
 let longPressTimer: ReturnType<typeof setTimeout> | null = null
 let longPressTriggered = false
 
+function isSaveDisabled() {
+  return props.saving || props.tabs.length === 0
+}
+
 function startSavePress() {
+  if (isSaveDisabled()) return
   longPressTriggered = false
   longPressTimer = setTimeout(() => {
     longPressTriggered = true
@@ -42,6 +47,7 @@ function cancelSavePress() {
 }
 
 function handleSaveClick() {
+  if (isSaveDisabled()) return
   if (longPressTriggered) {
     longPressTriggered = false
     return

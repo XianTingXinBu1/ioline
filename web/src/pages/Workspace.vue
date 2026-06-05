@@ -1,56 +1,77 @@
 <script setup lang="ts">
-/**
- * Workspace 主工作区页面
- * 当前仅面向移动端：编辑器主视图 + 侧栏抽屉
- */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { CodeEditor } from '@/components/Editor'
-import { EditorQuickKeys, WorkspacePickerDialog, WorkspaceSidebar, WorkspaceTabs, WorkspaceToast } from '@/components/Workspace'
+import {
+  EditorQuickKeys,
+  WorkspaceConfirmDialog,
+  WorkspacePickerDialog,
+  WorkspaceSidebar,
+  WorkspaceTabs,
+  WorkspaceToast,
+} from '@/components/Workspace'
 import { useEditorQuickKeys } from '@/composables/useEditorQuickKeys'
 import { useEditorStatus } from '@/composables/useEditorStatus'
 import { useWorkspaceExplorer } from '@/composables/useWorkspaceExplorer'
+import { useWorkspaceSession } from '@/composables/useWorkspaceSession'
 import { useWorkspaceToast } from '@/composables/useWorkspaceToast'
 
+const explorer = useWorkspaceExplorer()
+const session = useWorkspaceSession()
+
 const {
-  code,
   currentError,
-  currentFile,
-  currentFileInfo,
-  currentFileName,
-  currentFileRelativePath,
   directoryLoading,
   hideWorkspacePicker,
   initializeWorkspace,
-  isEditorReadonly,
+  loading,
   openEntry,
-  openFileTabs,
-  openTab,
-  closeTab,
   openWorkspaceDirectory,
   openWorkspaceDirectoryParent,
-  saveAllOpenFiles,
-  saveCurrentFile,
-  saving,
-  selectCurrentWorkspaceDirectory,
+  selectWorkspaceByPath,
   selectingWorkspacePath,
   showWorkspacePicker,
   sidebarEntries,
-  syncDirtyStateFromCode,
   workspaceDirectories,
   workspaceDirectoryParentPath,
   workspaceDirectoryPath,
   workspaceName,
   workspacePickerOpen,
   workspaceReady,
-} = useWorkspaceExplorer()
+} = explorer
+
+const {
+  activateFile,
+  cancelCloseDirtyTab,
+  cancelSaveAll,
+  closeConfirmOpen,
+  code,
+  confirmCloseDirtyTab,
+  confirmSaveAll,
+  currentFile,
+  currentFileInfo,
+  currentFileName,
+  currentFileRelativePath,
+  handleCodeInput,
+  isEditorReadonly,
+  onWorkspaceCleared,
+  onWorkspaceReady,
+  openFileTabs,
+  requestCloseTab,
+  requestSaveAll,
+  saveAllConfirmOpen,
+  saveCurrentFile,
+  saving,
+  switchTab,
+  toastMessage: sessionToastMessage,
+} = session
 
 const { charCount, encoding, fileType, lineCount, lineEnding } = useEditorStatus({
   code,
   currentFileName,
   currentFileInfo,
 })
-const errorMessage = computed(() => currentError.value)
-const { toastMessage, toastVisible } = useWorkspaceToast(errorMessage)
+const combinedToastMessage = computed(() => sessionToastMessage.value || currentError.value)
+const { toastMessage, toastVisible } = useWorkspaceToast(combinedToastMessage)
 
 type EditorExposed = {
   focus: () => void
@@ -80,25 +101,48 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
 }
 
 async function handleEntrySelect(entry: (typeof sidebarEntries.value)[number]) {
-  const opened = await openEntry(entry)
-  if (opened) {
-    isSidebarOpen.value = false
-  }
+  const result = await openEntry(entry)
+  if (!result) return
+  activateFile({
+    path: entry.path,
+    name: entry.name,
+    content: result.content,
+    readonly: result.readonly,
+    info: result,
+  })
 }
 
 async function handleCurrentDirectorySelect() {
-  const selected = await selectCurrentWorkspaceDirectory()
+  const selected = await selectWorkspaceByPath(workspaceDirectoryPath.value)
   if (selected) {
-    isSidebarOpen.value = false
+    onWorkspaceReady()
   }
 }
 
 async function handleTabSelect(path: string) {
-  await openTab(path)
+  const switched = switchTab(path)
+  if (switched) return
+
+  const tab = openFileTabs.value.find((item: { path: string }) => item.path === path)
+  if (!tab) return
+  const result = await openEntry({
+    name: tab.name,
+    path: tab.path,
+    kind: 'file',
+    depth: 0,
+  })
+  if (!result) return
+  activateFile({
+    path: tab.path,
+    name: tab.name,
+    content: result.content,
+    readonly: result.readonly,
+    info: result,
+  })
 }
 
 function handleTabClose(path: string) {
-  closeTab(path)
+  requestCloseTab(path)
 }
 
 function withModifiers() {
@@ -106,11 +150,6 @@ function withModifiers() {
     ctrl: ctrlActive.value,
     alt: altActive.value,
   }
-}
-
-function finishQuickKey() {
-  clearModifiers()
-  editorRef.value?.focus()
 }
 
 function handleQuickTab() {
@@ -139,7 +178,7 @@ function handleEditorFocusChange(focused: boolean) {
 }
 
 function handleEditorContentInput() {
-  syncDirtyStateFromCode()
+  handleCodeInput()
   if (ctrlActive.value || altActive.value) {
     clearModifiers()
   }
@@ -149,12 +188,25 @@ async function handleSave() {
   await saveCurrentFile()
 }
 
-async function handleSaveAll() {
-  await saveAllOpenFiles()
+function handleSaveAll() {
+  requestSaveAll()
 }
 
-onMounted(() => {
-  void initializeWorkspace()
+async function handleSaveAllConfirm() {
+  await confirmSaveAll()
+}
+
+onMounted(async () => {
+  const current = await initializeWorkspace()
+  if (current?.isSet) {
+    onWorkspaceReady()
+    return
+  }
+  onWorkspaceCleared()
+})
+
+onUnmounted(() => {
+  // 保留生命周期出口，便于后续若需补回监听时继续扩展
 })
 </script>
 
@@ -225,6 +277,24 @@ onMounted(() => {
         />
       </section>
     </main>
+
+    <WorkspaceConfirmDialog
+      :open="saveAllConfirmOpen"
+      title="保存全部"
+      description="确认保存所有已打开且已修改的文件？"
+      confirm-text="保存全部"
+      @confirm="handleSaveAllConfirm"
+      @cancel="cancelSaveAll"
+    />
+
+    <WorkspaceConfirmDialog
+      :open="closeConfirmOpen"
+      title="关闭标签"
+      description="当前文件有未保存修改，确认直接关闭？"
+      confirm-text="直接关闭"
+      @confirm="confirmCloseDirtyTab"
+      @cancel="cancelCloseDirtyTab"
+    />
 
     <WorkspaceToast :visible="toastVisible" :message="toastMessage" />
 
@@ -358,5 +428,4 @@ onMounted(() => {
 .status-bar__spacer {
   flex: 1;
 }
-
 </style>
