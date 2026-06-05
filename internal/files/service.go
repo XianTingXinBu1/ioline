@@ -20,6 +20,9 @@ var (
 	ErrNotRegularFile         = errors.New("path is not a regular file")
 	ErrBinaryFile             = errors.New("binary or executable file cannot be opened as text")
 	ErrFileTooLarge           = errors.New("file is too large to open as text")
+	ErrAlreadyExists          = errors.New("path already exists")
+	ErrDirectoryNotEmpty      = errors.New("directory is not empty")
+	ErrSourceDestinationEqual = errors.New("source and destination paths are identical")
 )
 
 // Entry describes a file system item under the workspace.
@@ -54,6 +57,44 @@ type SaveRequest struct {
 type SaveResult struct {
 	Path       string    `json:"path"`
 	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+}
+
+// CreateFileRequest defines the payload for creating a new file.
+type CreateFileRequest struct {
+	Path    string `json:"path"`
+	Content string `json:"content,omitempty"`
+}
+
+// CreateDirectoryRequest defines the payload for creating a directory.
+type CreateDirectoryRequest struct {
+	Path string `json:"path"`
+}
+
+// MoveRequest defines a rename or move operation inside the workspace.
+type MoveRequest struct {
+	FromPath string `json:"fromPath"`
+	ToPath   string `json:"toPath"`
+}
+
+// DeleteRequest defines a delete operation.
+type DeleteRequest struct {
+	Path      string `json:"path"`
+	Recursive bool   `json:"recursive"`
+}
+
+// OperationResult describes the outcome of a filesystem mutation.
+type OperationResult struct {
+	Path       string    `json:"path"`
+	Type       string    `json:"type"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+}
+
+// MoveResult describes a move or rename outcome.
+type MoveResult struct {
+	FromPath   string    `json:"fromPath"`
+	ToPath     string    `json:"toPath"`
+	Type       string    `json:"type"`
 	ModifiedAt time.Time `json:"modifiedAt"`
 }
 
@@ -191,6 +232,157 @@ func (s *Service) SaveText(rootPath string, req SaveRequest) (SaveResult, error)
 	}, nil
 }
 
+// CreateFile creates a new file and fails if the path already exists.
+func (s *Service) CreateFile(rootPath string, req CreateFileRequest) (OperationResult, error) {
+	absPath, cleanRel, err := resolvePath(rootPath, req.Path)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if cleanRel == "." {
+		return OperationResult{}, ErrInvalidPath
+	}
+	if err := ensureNotExists(absPath); err != nil {
+		return OperationResult{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		return OperationResult{}, err
+	}
+	if err := os.WriteFile(absPath, []byte(req.Content), 0o644); err != nil {
+		return OperationResult{}, err
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return OperationResult{}, err
+	}
+
+	return OperationResult{
+		Path:       cleanRel,
+		Type:       "file",
+		ModifiedAt: info.ModTime(),
+	}, nil
+}
+
+// CreateDirectory creates a new directory and required parents.
+func (s *Service) CreateDirectory(rootPath string, req CreateDirectoryRequest) (OperationResult, error) {
+	absPath, cleanRel, err := resolvePath(rootPath, req.Path)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if cleanRel == "." {
+		return OperationResult{}, ErrInvalidPath
+	}
+	if err := ensureNotExists(absPath); err != nil {
+		return OperationResult{}, err
+	}
+	if err := os.MkdirAll(absPath, 0o755); err != nil {
+		return OperationResult{}, err
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return OperationResult{}, err
+	}
+
+	return OperationResult{
+		Path:       cleanRel,
+		Type:       "directory",
+		ModifiedAt: info.ModTime(),
+	}, nil
+}
+
+// Move renames or moves a file system item inside the workspace.
+func (s *Service) Move(rootPath string, req MoveRequest) (MoveResult, error) {
+	fromAbs, fromRel, err := resolvePath(rootPath, req.FromPath)
+	if err != nil {
+		return MoveResult{}, err
+	}
+	toAbs, toRel, err := resolvePath(rootPath, req.ToPath)
+	if err != nil {
+		return MoveResult{}, err
+	}
+	if fromRel == "." || toRel == "." {
+		return MoveResult{}, ErrInvalidPath
+	}
+	if fromAbs == toAbs {
+		return MoveResult{}, ErrSourceDestinationEqual
+	}
+
+	info, err := os.Stat(fromAbs)
+	if err != nil {
+		return MoveResult{}, err
+	}
+	if err := ensureNotExists(toAbs); err != nil {
+		return MoveResult{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(toAbs), 0o755); err != nil {
+		return MoveResult{}, err
+	}
+	if err := os.Rename(fromAbs, toAbs); err != nil {
+		return MoveResult{}, err
+	}
+
+	movedInfo, err := os.Stat(toAbs)
+	if err != nil {
+		return MoveResult{}, err
+	}
+
+	itemType := "file"
+	if info.IsDir() {
+		itemType = "directory"
+	}
+
+	return MoveResult{
+		FromPath:   fromRel,
+		ToPath:     toRel,
+		Type:       itemType,
+		ModifiedAt: movedInfo.ModTime(),
+	}, nil
+}
+
+// Delete removes a file or directory under the workspace.
+func (s *Service) Delete(rootPath string, req DeleteRequest) (OperationResult, error) {
+	absPath, cleanRel, err := resolvePath(rootPath, req.Path)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if cleanRel == "." {
+		return OperationResult{}, ErrInvalidPath
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return OperationResult{}, err
+	}
+
+	itemType := "file"
+	if info.IsDir() {
+		itemType = "directory"
+		if req.Recursive {
+			if err := os.RemoveAll(absPath); err != nil {
+				return OperationResult{}, err
+			}
+		} else {
+			if err := os.Remove(absPath); err != nil {
+				if isDirectoryNotEmpty(err) {
+					return OperationResult{}, ErrDirectoryNotEmpty
+				}
+				return OperationResult{}, err
+			}
+		}
+	} else {
+		if err := os.Remove(absPath); err != nil {
+			return OperationResult{}, err
+		}
+	}
+
+	return OperationResult{
+		Path:       cleanRel,
+		Type:       itemType,
+		ModifiedAt: time.Now(),
+	}, nil
+}
+
 func resolvePath(rootPath, relPath string) (string, string, error) {
 	if rootPath == "" {
 		return "", "", ErrWorkspaceNotConfigured
@@ -215,6 +407,24 @@ func resolvePath(rootPath, relPath string) (string, string, error) {
 	}
 
 	return cleanAbs, filepath.ToSlash(relToRoot), nil
+}
+
+func ensureNotExists(path string) error {
+	_, err := os.Stat(path)
+	if err == nil {
+		return ErrAlreadyExists
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+func isDirectoryNotEmpty(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "directory not empty")
 }
 
 func buildEntry(path, name string, info fs.FileInfo) Entry {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -54,6 +55,9 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("/api/workspace/current", s.handleWorkspaceCurrent)
 	mux.HandleFunc("/api/files/list", s.handleFilesList)
 	mux.HandleFunc("/api/files/stat", s.handleFilesStat)
+	mux.HandleFunc("/api/files", s.handleFiles)
+	mux.HandleFunc("/api/files/move", s.handleFilesMove)
+	mux.HandleFunc("/api/directories", s.handleDirectories)
 	mux.HandleFunc("/api/file/content", s.handleFileContent)
 
 	s.httpServer = &http.Server{
@@ -171,6 +175,90 @@ func (s *Server) handleFilesStat(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusOK, entry)
 }
 
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	rootPath, ok := s.requireWorkspace(w)
+	if !ok {
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		var payload files.CreateFileRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			api.WriteError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON request body")
+			return
+		}
+		result, err := s.fileService.CreateFile(rootPath, payload)
+		if err != nil {
+			s.writeFileError(w, err)
+			return
+		}
+		api.WriteJSON(w, http.StatusCreated, result)
+	case http.MethodDelete:
+		var payload files.DeleteRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			api.WriteError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON request body")
+			return
+		}
+		result, err := s.fileService.Delete(rootPath, payload)
+		if err != nil {
+			s.writeFileError(w, err)
+			return
+		}
+		api.WriteJSON(w, http.StatusOK, result)
+	default:
+		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+	}
+}
+
+func (s *Server) handleDirectories(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	rootPath, ok := s.requireWorkspace(w)
+	if !ok {
+		return
+	}
+
+	var payload files.CreateDirectoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		api.WriteError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON request body")
+		return
+	}
+	result, err := s.fileService.CreateDirectory(rootPath, payload)
+	if err != nil {
+		s.writeFileError(w, err)
+		return
+	}
+	api.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) handleFilesMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	rootPath, ok := s.requireWorkspace(w)
+	if !ok {
+		return
+	}
+
+	var payload files.MoveRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		api.WriteError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON request body")
+		return
+	}
+	result, err := s.fileService.Move(rootPath, payload)
+	if err != nil {
+		s.writeFileError(w, err)
+		return
+	}
+	api.WriteJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleFileContent(w http.ResponseWriter, r *http.Request) {
 	rootPath, ok := s.requireWorkspace(w)
 	if !ok {
@@ -215,7 +303,7 @@ func (s *Server) writeFileError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, files.ErrWorkspaceNotConfigured), errors.Is(err, workspace.ErrNotConfigured):
 		api.WriteError(w, http.StatusBadRequest, "WORKSPACE_NOT_CONFIGURED", err.Error())
-	case errors.Is(err, files.ErrInvalidPath), errors.Is(err, files.ErrPathRequired):
+	case errors.Is(err, files.ErrInvalidPath), errors.Is(err, files.ErrPathRequired), errors.Is(err, files.ErrSourceDestinationEqual):
 		api.WriteError(w, http.StatusBadRequest, "INVALID_PATH", err.Error())
 	case errors.Is(err, files.ErrNotRegularFile):
 		api.WriteError(w, http.StatusBadRequest, "NOT_REGULAR_FILE", err.Error())
@@ -223,6 +311,10 @@ func (s *Server) writeFileError(w http.ResponseWriter, err error) {
 		api.WriteError(w, http.StatusBadRequest, "UNSUPPORTED_FILE", err.Error())
 	case errors.Is(err, files.ErrFileTooLarge):
 		api.WriteError(w, http.StatusBadRequest, "FILE_TOO_LARGE", err.Error())
+	case errors.Is(err, files.ErrAlreadyExists):
+		api.WriteError(w, http.StatusConflict, "ALREADY_EXISTS", err.Error())
+	case errors.Is(err, files.ErrDirectoryNotEmpty), errors.Is(err, fs.ErrNotExist):
+		api.WriteError(w, http.StatusBadRequest, "DIRECTORY_NOT_EMPTY", err.Error())
 	case errors.Is(err, os.ErrNotExist):
 		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 	default:
