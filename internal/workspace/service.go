@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -16,6 +17,14 @@ type Info struct {
 	Name     string    `json:"name,omitempty"`
 	IsSet    bool      `json:"isSet"`
 	SetAt    time.Time `json:"setAt,omitempty"`
+}
+
+// Candidate describes one workspace suggestion for the frontend.
+type Candidate struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
+	Source string `json:"source"`
 }
 
 // Service stores the active workspace state in memory.
@@ -74,4 +83,67 @@ func (s *Service) Set(path string) (Info, error) {
 	s.mu.Unlock()
 
 	return info, nil
+}
+
+// Clear removes the current workspace configuration.
+func (s *Service) Clear() Info {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.info = Info{}
+	return s.info
+}
+
+// Candidates returns a stable, de-duplicated list of suggested workspace roots.
+func (s *Service) Candidates() []Candidate {
+	current := s.Current()
+	seen := make(map[string]struct{})
+	items := make([]Candidate, 0, 6)
+
+	appendCandidate := func(path, source string) {
+		if path == "" {
+			return
+		}
+		absPath, err := filepath.Abs(filepath.Clean(path))
+		if err != nil {
+			return
+		}
+		if _, ok := seen[absPath]; ok {
+			return
+		}
+		stat, err := os.Stat(absPath)
+		if err != nil || !stat.IsDir() {
+			return
+		}
+		seen[absPath] = struct{}{}
+		items = append(items, Candidate{
+			Name:   filepath.Base(absPath),
+			Path:   absPath,
+			Exists: true,
+			Source: source,
+		})
+	}
+
+	if current.IsSet {
+		appendCandidate(current.RootPath, "current")
+	}
+
+	homeDir, _ := os.UserHomeDir()
+	appendCandidate(filepath.Join(homeDir, "project"), "suggested")
+	appendCandidate(filepath.Join(homeDir, "projects"), "suggested")
+	appendCandidate(filepath.Join(homeDir, "workspace"), "suggested")
+	appendCandidate(homeDir, "default")
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		appendCandidate(cwd, "current")
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Source != items[j].Source {
+			return items[i].Source < items[j].Source
+		}
+		return items[i].Path < items[j].Path
+	})
+
+	return items
 }

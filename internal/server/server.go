@@ -63,6 +63,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/system/info", s.handleSystemInfo)
 	mux.HandleFunc("/api/workspace/current", s.handleWorkspaceCurrent)
+	mux.HandleFunc("/api/workspaces/candidates", s.handleWorkspaceCandidates)
 	mux.HandleFunc("/api/files/list", s.handleFilesList)
 	mux.HandleFunc("/api/files/stat", s.handleFilesStat)
 	mux.HandleFunc("/api/files", s.handleFiles)
@@ -143,9 +144,20 @@ func (s *Server) handleWorkspaceCurrent(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		api.WriteJSON(w, http.StatusOK, info)
+	case http.MethodDelete:
+		api.WriteJSON(w, http.StatusOK, s.workspaceService.Clear())
 	default:
 		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 	}
+}
+
+func (s *Server) handleWorkspaceCandidates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		api.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+
+	api.WriteJSON(w, http.StatusOK, map[string]any{"items": s.workspaceService.Candidates()})
 }
 
 func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
