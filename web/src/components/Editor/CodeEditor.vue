@@ -1,27 +1,53 @@
 <script setup lang="ts">
 /**
  * CodeMirror 6 编辑器封装组件
- * 纯文本模式（无语法高亮）· 莫奈暗色主题
+ * 按文件扩展名动态加载语言包 · 莫奈暗色主题（高亮配色复用 one-dark）
  */
 import { ref, watch, onMounted, onUnmounted, type Ref } from 'vue'
 import { EditorView, basicSetup } from 'codemirror'
 import { Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state'
+import { syntaxHighlighting } from '@codemirror/language'
+import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
 import { highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { useZoom } from '@/composables/useZoom'
+import { detectLanguage } from '@/utils'
 
 const { fontSize, bindPinch, unbindPinch, onChange } = useZoom()
 const fontSizeCompartment = new Compartment()
+const languageCompartment = new Compartment()
 let unwatchZoom: (() => void) | null = null
+
+/**
+ * 按 detectLanguage() 的语言名懒加载对应语言包
+ * 未列出的语言（shell / rust / toml / sql 等）保持纯文本，不影响编辑
+ */
+const languageLoaders: Record<string, () => Promise<Extension>> = {
+  javascript: async () => (await import('@codemirror/lang-javascript')).javascript(),
+  jsx: async () => (await import('@codemirror/lang-javascript')).javascript({ jsx: true }),
+  typescript: async () => (await import('@codemirror/lang-javascript')).javascript({ typescript: true }),
+  tsx: async () => (await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript: true }),
+  html: async () => (await import('@codemirror/lang-html')).html(),
+  css: async () => (await import('@codemirror/lang-css')).css(),
+  json: async () => (await import('@codemirror/lang-json')).json(),
+  go: async () => (await import('@codemirror/lang-go')).go(),
+  python: async () => (await import('@codemirror/lang-python')).python(),
+  markdown: async () => (await import('@codemirror/lang-markdown')).markdown(),
+  yaml: async () => (await import('@codemirror/lang-yaml')).yaml(),
+  xml: async () => (await import('@codemirror/lang-xml')).xml(),
+  svg: async () => (await import('@codemirror/lang-xml')).xml(),
+}
 
 const props = withDefaults(
   defineProps<{
     modelValue: string
     readonly?: boolean
+    filename?: string
   }>(),
   {
     modelValue: '',
     readonly: false,
+    filename: '',
   },
 )
 
@@ -33,6 +59,8 @@ const emit = defineEmits<{
 
 const editorRef: Ref<HTMLDivElement | null> = ref(null)
 let view: EditorView | null = null
+// 语言包异步加载的竞态令牌：文件名快速切换时只应用最后一次请求
+let languageLoadToken = 0
 
 function createFontSizeExtension(size: number): Extension {
   return EditorView.theme({
@@ -62,6 +90,8 @@ function buildExtensions(): Extension[] {
     lineNumbers(),
     highlightActiveLineGutter(),
     fontSizeCompartment.of(createFontSizeExtension(fontSize.value)),
+    languageCompartment.of([]),
+    syntaxHighlighting(oneDarkHighlightStyle),
     keymap.of([...defaultKeymap, indentWithTab]),
   ]
 
@@ -70,6 +100,26 @@ function buildExtensions(): Extension[] {
   }
 
   return exts
+}
+
+async function applyLanguage(filename: string) {
+  const token = ++languageLoadToken
+  const loader = languageLoaders[detectLanguage(filename)]
+
+  if (!loader) {
+    view?.dispatch({ effects: languageCompartment.reconfigure([]) })
+    return
+  }
+
+  try {
+    const extension = await loader()
+    if (token !== languageLoadToken || !view) return
+    view.dispatch({ effects: languageCompartment.reconfigure(extension) })
+  } catch {
+    // 语言包加载失败时降级为纯文本，不影响继续编辑
+    if (token !== languageLoadToken || !view) return
+    view.dispatch({ effects: languageCompartment.reconfigure([]) })
+  }
 }
 
 function createEditor() {
@@ -102,9 +152,12 @@ function createEditor() {
     })
     view?.requestMeasure()
   })
+
+  void applyLanguage(props.filename)
 }
 
 function destroyEditor() {
+  languageLoadToken++
   unwatchZoom?.()
   unwatchZoom = null
   view?.destroy()
@@ -131,6 +184,13 @@ watch(
   () => {
     destroyEditor()
     createEditor()
+  },
+)
+
+watch(
+  () => props.filename,
+  (filename) => {
+    void applyLanguage(filename)
   },
 )
 

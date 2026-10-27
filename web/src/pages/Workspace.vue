@@ -307,6 +307,7 @@ onUnmounted(() => {
         <CodeEditor
           ref="editorRef"
           v-model="code"
+          :filename="currentFileName"
           :readonly="isEditorReadonly"
           @focus-change="handleEditorFocusChange"
           @content-input="handleEditorContentInput"
