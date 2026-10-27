@@ -49,6 +49,16 @@ function upsertTab(tabs: OpenFileTab[], tab: OpenFileTab): OpenFileTab[] {
   return [...tabs, tab]
 }
 
+/**
+ * 真实文件标签的元信息
+ * base: 与服务端最近一次一致的内容，用于脏状态比对
+ * info: 服务器返回的文件详情（readonly / lineEnding / size 等）
+ */
+type FileTabMeta = {
+  info: FileContentResponse
+  base: string
+}
+
 export function useWorkspaceSession() {
   const code = ref(welcomeContent)
   const currentFile = ref(WELCOME_PATH)
@@ -61,6 +71,7 @@ export function useWorkspaceSession() {
   const saveAllConfirmOpen = ref(false)
   const closingTabPath = ref<string | null>(null)
   const closeConfirmOpen = ref(false)
+  const fileTabMeta = new Map<string, FileTabMeta>()
 
   const currentFileName = computed(() => {
     const activeTab = openFileTabs.value.find((tab) => tab.path === currentFile.value)
@@ -83,6 +94,7 @@ export function useWorkspaceSession() {
     code.value = welcomeContent
     isEditorReadonly.value = true
     openFileTabs.value = [createWelcomeTab()]
+    fileTabMeta.clear()
   }
 
   function resetToUntitled() {
@@ -91,6 +103,7 @@ export function useWorkspaceSession() {
     code.value = untitledContent
     isEditorReadonly.value = false
     openFileTabs.value = [createUntitledTab()]
+    fileTabMeta.clear()
   }
 
   function onWorkspaceCleared() {
@@ -149,6 +162,7 @@ export function useWorkspaceSession() {
     info: FileContentResponse
   }) {
     closeUntitledIfPristine()
+    fileTabMeta.set(params.path, { info: params.info, base: params.content })
     currentFile.value = params.path
     currentFileInfo.value = params.info
     code.value = params.content
@@ -180,10 +194,11 @@ export function useWorkspaceSession() {
     openFileTabs.value = upsertTab(openFileTabs.value, createUntitledTab())
   }
 
-  function switchTab(path: string) {
-    const tab = openFileTabs.value.find((item) => item.path === path)
-    if (!tab) return false
-
+  /**
+   * 按路径激活标签，内容优先取内存草稿，避免切换标签时丢掉未保存修改
+   * 返回 false 表示标签不存在（调用方需要重新拉取文件内容）
+   */
+  function restoreTab(path: string): boolean {
     if (path === WELCOME_PATH) {
       activateWelcome()
       return true
@@ -194,7 +209,15 @@ export function useWorkspaceSession() {
       return true
     }
 
-    return false
+    const tab = openFileTabs.value.find((item) => item.path === path)
+    if (!tab) return false
+
+    const meta = fileTabMeta.get(path)
+    currentFile.value = path
+    currentFileInfo.value = meta ? { ...meta.info } : null
+    isEditorReadonly.value = meta ? meta.info.readonly : false
+    code.value = tab.draft ?? meta?.base ?? ''
+    return true
   }
 
   function requestCloseTab(path: string): boolean {
@@ -215,11 +238,9 @@ export function useWorkspaceSession() {
     const nextTabs = openFileTabs.value.filter((tab) => tab.path !== path)
     const wasActive = currentFile.value === path
     openFileTabs.value = nextTabs
+    fileTabMeta.delete(path)
 
-    if (!wasActive) {
-      ensureFallbackTab()
-      return
-    }
+    if (!wasActive) return
 
     const nextActiveTab = nextTabs[nextTabs.length - 1] ?? null
     if (!nextActiveTab) {
@@ -227,17 +248,7 @@ export function useWorkspaceSession() {
       return
     }
 
-    if (nextActiveTab.path === WELCOME_PATH) {
-      activateWelcome()
-      return
-    }
-
-    if (nextActiveTab.path === UNTITLED_PATH) {
-      activateUntitled()
-      return
-    }
-
-    currentFile.value = nextActiveTab.path
+    restoreTab(nextActiveTab.path)
   }
 
   function confirmCloseDirtyTab() {
@@ -279,6 +290,19 @@ export function useWorkspaceSession() {
         dirty: false,
         draft: content,
       })
+
+      const meta = fileTabMeta.get(tab.path)
+      if (meta) {
+        fileTabMeta.set(tab.path, {
+          base: content,
+          info: {
+            ...meta.info,
+            content,
+            size: res.size,
+            modifiedAt: res.modifiedAt,
+          },
+        })
+      }
 
       if (currentFile.value === tab.path && currentFileInfo.value) {
         currentFileInfo.value = {
@@ -366,7 +390,7 @@ export function useWorkspaceSession() {
     saveAllConfirmOpen,
     saveCurrentFile,
     saving,
-    switchTab,
+    switchTab: restoreTab,
     toastMessage,
   }
 }

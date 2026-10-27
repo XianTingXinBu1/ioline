@@ -84,6 +84,9 @@ const editorRef = ref<EditorExposed | null>(null)
 const editorFocused = ref(false)
 const isSidebarOpen = ref(false)
 const activeSidebarPanel = ref<'files' | 'settings'>('files')
+const pendingWorkspacePath = ref<string | null>(null)
+const workspaceSwitchConfirmOpen = ref(false)
+const dirtyTabCount = computed(() => openFileTabs.value.filter((tab) => tab.dirty).length)
 
 function toggleSidebar() {
   isSidebarOpen.value = !isSidebarOpen.value
@@ -101,6 +104,13 @@ function switchSidebarPanel(panel: 'files' | 'settings') {
 }
 
 async function handleEntrySelect(entry: (typeof sidebarEntries.value)[number]) {
+  // 该文件已打开且有未保存修改时，直接切回标签，不用磁盘内容覆盖草稿
+  const openedTab = openFileTabs.value.find((tab) => tab.path === entry.path)
+  if (entry.kind === 'file' && openedTab?.dirty) {
+    switchTab(entry.path)
+    return
+  }
+
   const result = await openEntry(entry)
   if (!result) return
   activateFile({
@@ -112,11 +122,37 @@ async function handleEntrySelect(entry: (typeof sidebarEntries.value)[number]) {
   })
 }
 
+async function applyWorkspaceSelection(path: string) {
+  const selected = await selectWorkspaceByPath(path)
+  if (!selected) return
+  onWorkspaceReady()
+}
+
 async function handleCurrentDirectorySelect() {
-  const selected = await selectWorkspaceByPath(workspaceDirectoryPath.value)
-  if (selected) {
-    onWorkspaceReady()
+  const targetPath = workspaceDirectoryPath.value
+  if (!targetPath) return
+
+  // 切换工作区会重置所有标签，存在未保存修改时先确认
+  if (dirtyTabCount.value > 0) {
+    pendingWorkspacePath.value = targetPath
+    workspaceSwitchConfirmOpen.value = true
+    return
   }
+
+  await applyWorkspaceSelection(targetPath)
+}
+
+async function confirmWorkspaceSwitch() {
+  const targetPath = pendingWorkspacePath.value
+  pendingWorkspacePath.value = null
+  workspaceSwitchConfirmOpen.value = false
+  if (!targetPath) return
+  await applyWorkspaceSelection(targetPath)
+}
+
+function cancelWorkspaceSwitch() {
+  pendingWorkspacePath.value = null
+  workspaceSwitchConfirmOpen.value = false
 }
 
 async function handleTabSelect(path: string) {
@@ -294,6 +330,15 @@ onUnmounted(() => {
       confirm-text="直接关闭"
       @confirm="confirmCloseDirtyTab"
       @cancel="cancelCloseDirtyTab"
+    />
+
+    <WorkspaceConfirmDialog
+      :open="workspaceSwitchConfirmOpen"
+      title="切换工作区"
+      :description="`切换工作区会关闭当前所有标签，其中 ${dirtyTabCount} 个文件有未保存修改，确认继续？`"
+      confirm-text="放弃并切换"
+      @confirm="confirmWorkspaceSwitch"
+      @cancel="cancelWorkspaceSwitch"
     />
 
     <WorkspaceToast :visible="toastVisible" :message="toastMessage" />
