@@ -1,8 +1,12 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="http://127.0.0.1:9650"
-WORKSPACE="/data/data/com.termux/files/home/project/ioline"
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT_DIR"
+mkdir -p .tmp
+
+BASE_URL="${IOLINE_BASE_URL:-http://127.0.0.1:9650}"
+WORKSPACE="${IOLINE_WORKSPACE:-$ROOT_DIR}"
 TMP_WS_REL="tmp/api-test"
 TMP_FILE_REL="$TMP_WS_REL/hello.txt"
 TMP_MOVED_REL="$TMP_WS_REL/hello-renamed.txt"
